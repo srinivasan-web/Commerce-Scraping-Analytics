@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
 
 WORKDIR /app/backend
+ENV PLAYWRIGHT_BROWSERS_PATH=0
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 RUN python -m playwright install --with-deps chromium

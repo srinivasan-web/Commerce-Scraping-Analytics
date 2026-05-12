@@ -5,6 +5,10 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
+# Store Playwright browsers inside the deployed app instead of Render's external
+# cache, which can be missing at runtime on fresh instances.
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

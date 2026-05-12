@@ -4,5 +4,8 @@ services:
     runtime: python
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && python -m playwright install chromium
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt && PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install chromium
+    startCommand: PLAYWRIGHT_BROWSERS_PATH=0 uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "0"
