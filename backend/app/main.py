@@ -33,7 +33,8 @@ def cors_origins() -> list[str]:
         "http://localhost:3000", 
         "http://127.0.0.1:3000", 
         "http://localhost:3001",
-        "https://commerce-scraping-analytics.onrender.com"
+        "https://commerce-scraping-analytics.onrender.com",
+        "https://commerce-scraping-analytics.vercel.app"
     ]
     configured = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
     return [*defaults, *configured]
@@ -75,6 +76,18 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint - API info."""
+    return {
+        "name": "Commerce Intelligence Scraping API",
+        "version": "2.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health"
+    }
 
 
 @app.get("/health")
