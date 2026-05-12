@@ -1,0 +1,2 @@
+yoou implementation for the designing in the silder action and clickable and button format in dashboard with step by step processing more attractive and dynamci level advanced level ore attractive .
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
