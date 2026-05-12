@@ -29,7 +29,12 @@ configure_windows_event_loop()
 
 def cors_origins() -> list[str]:
     """Return allowed frontend origins for local and deployed dashboards."""
-    defaults = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001"]
+    defaults = [
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000", 
+        "http://localhost:3001",
+        "https://commerce-scraping-analytics.onrender.com"
+    ]
     configured = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
     return [*defaults, *configured]
 

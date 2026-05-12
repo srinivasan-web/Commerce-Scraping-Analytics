@@ -1,0 +1,22 @@
+{
+  "organizations": [
+    {
+      "id": "org_2338be8e7d81",
+      "name": "India Commerce Team",
+      "users": [
+        "admin@example.com"
+      ]
+    }
+  ],
+  "api_keys": [
+    {
+      "id": "key_17deb52a6edb",
+      "organization_id": "org_2338be8e7d81",
+      "name": "Default Dashboard Key",
+      "key_preview": "ak_71RZ5...P6vHuA",
+      "key": "ak_71RZ56x3iU4Dy1CAnWUYYdgsvzvg24fbC6F4zP6vHuA",
+      "created_at": "2026-05-12T15:57:14.024636",
+      "active": true
+    }
+  ]
+}
