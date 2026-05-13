@@ -9,3 +9,11 @@ services:
     envVars:
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "0"
+      - key: SCRAPER_MAX_WORKERS
+        value: "1"
+      - key: SCRAPER_MAX_BROWSERS
+        value: "1"
+      - key: SCRAPER_MAX_DETAIL_CONCURRENCY
+        value: "6"
+      - key: SCRAPER_MAX_VARIANT_CONCURRENCY
+        value: "2"

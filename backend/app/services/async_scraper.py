@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import random
 import re
 import traceback
@@ -32,12 +33,35 @@ RUPEE = "\u20b9"
 MOJIBAKE_RUPEE = "\u00e2\u201a\u00b9"
 PRICE_TOKEN = f"(?:{re.escape(RUPEE)}|{re.escape(MOJIBAKE_RUPEE)}|Rs\\.?|INR|\\$)"
 BOUGHT_COUNT_PATTERN = r"\d[\d,.]*\s*(?:k|m|lakh|lac|l|crore|cr)?\+?\s*(?:bought|sold|purchased|orders?)(?:\s+(?:in\s+)?(?:the\s+)?(?:past|last)\s+month)?"
+BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
+
+
+def env_int(name: str, default: int, minimum: int = 1, maximum: int = 20) -> int:
+    try:
+        return max(minimum, min(int(os.getenv(name, str(default))), maximum))
+    except ValueError:
+        return default
+
+
+async def optimize_context(context: BrowserContext) -> None:
+    """Block heavyweight resources that are not needed for DOM text extraction."""
+    if getattr(context, "_commerce_routes_optimized", False):
+        return
+
+    async def handle_route(route):
+        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await context.route("**/*", handle_route)
+    context._commerce_routes_optimized = True
 
 # Global connection pool
 class BrowserPool:
     """Manages browser instances and contexts for connection pooling."""
     
-    def __init__(self, max_browsers: int = 3):
+    def __init__(self, max_browsers: int = 1):
         self.max_browsers = max_browsers
         self.browsers: list[Browser] = []
         self.contexts: list[BrowserContext] = []
@@ -116,6 +140,7 @@ class BrowserPool:
                             timezone_id="Asia/Kolkata",
                             extra_http_headers={"Accept-Language": "en-IN,en;q=0.9"},
                         )
+                        await optimize_context(context)
                     except Exception as e:
                         self.semaphore.release()
                         raise RuntimeError(f"Failed to create async browser context: {e!r}") from e
@@ -182,7 +207,7 @@ class BrowserPool:
 
 
 # Global pool instance
-_browser_pool = BrowserPool(max_browsers=3)
+_browser_pool = BrowserPool(max_browsers=env_int("SCRAPER_MAX_BROWSERS", 1, 1, 3))
 
 
 def clean_text(value: str | None) -> str:
@@ -720,13 +745,13 @@ def apply_variant_fields(product: Product, card: dict) -> Product:
     return product
 
 
-async def fetch_product_detail(context: BrowserContext, product_url: str, card: dict) -> dict:
+async def fetch_product_detail(context: BrowserContext, product_url: str, card: dict, timeout_ms: int) -> dict:
     """Fetch product details from detail page with smart timeout."""
     page: Page | None = None
     try:
         page = await context.new_page()
-        await page.goto(product_url, wait_until="domcontentloaded", timeout=45000)
-        await asyncio.sleep(random.uniform(0.3, 0.7))  # Reduced from 0.8-1.4
+        await page.goto(product_url, wait_until="domcontentloaded", timeout=timeout_ms)
+        await page.wait_for_timeout(100)
         detail = await page.evaluate(DETAIL_SCRIPT)
         
         merged = {**card}
@@ -745,15 +770,15 @@ async def fetch_product_detail(context: BrowserContext, product_url: str, card: 
                 pass
 
 
-async def fetch_product_variants(context: BrowserContext, product_url: str, card: dict, max_variants: int) -> list[dict]:
+async def fetch_product_variants(context: BrowserContext, product_url: str, card: dict, max_variants: int, timeout_ms: int) -> list[dict]:
     """Open a product page, discover variant controls, click them, and capture changed live state."""
     page: Page | None = None
     if max_variants <= 0 or not product_url:
         return [card]
     try:
         page = await context.new_page()
-        await page.goto(product_url, wait_until="domcontentloaded", timeout=45000)
-        await page.wait_for_load_state("networkidle", timeout=12000)
+        await page.goto(product_url, wait_until="domcontentloaded", timeout=timeout_ms)
+        await page.wait_for_timeout(250)
         discovery = await page.evaluate(VARIANT_SCRIPT, {"maxVariants": max_variants})
         variants = discovery.get("variants") or []
         gallery_images = discovery.get("galleryImages") or []
@@ -771,7 +796,7 @@ async def fetch_product_variants(context: BrowserContext, product_url: str, card
                 )
                 before_url = page.url
                 await page.locator(selector).first.click(timeout=5000)
-                await page.wait_for_timeout(random.randint(350, 900))
+                await page.wait_for_timeout(250)
                 if page.url != before_url:
                     await page.wait_for_load_state("domcontentloaded", timeout=12000)
                 detail = await page.evaluate(DETAIL_SCRIPT)
@@ -800,9 +825,10 @@ async def fetch_product_variants(context: BrowserContext, product_url: str, card
                 pass
 
 
-async def fetch_details_parallel(context: BrowserContext, cards: list[dict]) -> list[dict]:
-    """Fetch details for multiple products in parallel batches."""
-    batch_size = 4  # Parallel batch size
+async def fetch_details_parallel(context: BrowserContext, cards: list[dict], concurrency: int, timeout_seconds: int) -> list[dict]:
+    """Fetch product detail pages concurrently with bounded concurrency."""
+    concurrency = max(1, min(concurrency, env_int("SCRAPER_MAX_DETAIL_CONCURRENCY", 6, 1, 10)))
+    timeout_ms = max(8000, min(timeout_seconds * 1000, 30000))
     needs_detail = [
         (i, card) for i, card in enumerate(cards)
         if (not card.get("boughtText") or not card.get("originalPrice") or not card.get("discount"))
@@ -812,36 +838,37 @@ async def fetch_details_parallel(context: BrowserContext, cards: list[dict]) -> 
     if not needs_detail:
         return cards
     
-    # Process in batches
-    for batch_start in range(0, len(needs_detail), batch_size):
-        batch = needs_detail[batch_start:batch_start + batch_size]
-        tasks = [
-            fetch_product_detail(context, card.get("productUrl"), card)
-            for _, card in batch
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for (idx, _), result in zip(batch, results):
-            if isinstance(result, dict):
-                cards[idx] = result
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def enrich(idx: int, card: dict) -> tuple[int, dict]:
+        async with semaphore:
+            return idx, await fetch_product_detail(context, card.get("productUrl"), card, timeout_ms)
+
+    results = await asyncio.gather(*(enrich(idx, card) for idx, card in needs_detail), return_exceptions=True)
+    for result in results:
+        if isinstance(result, tuple):
+            idx, detail = result
+            cards[idx] = detail
     
     return cards
 
 
-async def expand_variants_parallel(context: BrowserContext, cards: list[dict], max_variants: int) -> list[dict]:
-    batch_size = 3
+async def expand_variants_parallel(context: BrowserContext, cards: list[dict], max_variants: int, concurrency: int, timeout_seconds: int) -> list[dict]:
+    concurrency = max(1, min(concurrency, env_int("SCRAPER_MAX_VARIANT_CONCURRENCY", 2, 1, 5)))
+    timeout_ms = max(8000, min(timeout_seconds * 1000, 30000))
+    semaphore = asyncio.Semaphore(concurrency)
     expanded: list[dict] = []
-    for batch_start in range(0, len(cards), batch_size):
-        batch = cards[batch_start:batch_start + batch_size]
-        results = await asyncio.gather(
-            *(fetch_product_variants(context, card.get("productUrl"), card, max_variants) for card in batch),
-            return_exceptions=True,
-        )
-        for card, result in zip(batch, results):
-            if isinstance(result, list):
-                expanded.extend(result)
-            else:
-                expanded.append(card)
+
+    async def expand(card: dict) -> list[dict]:
+        async with semaphore:
+            return await fetch_product_variants(context, card.get("productUrl"), card, max_variants, timeout_ms)
+
+    results = await asyncio.gather(*(expand(card) for card in cards), return_exceptions=True)
+    for card, result in zip(cards, results):
+        if isinstance(result, list):
+            expanded.extend(result)
+        else:
+            expanded.append(card)
     return expanded
 
 
@@ -896,9 +923,10 @@ async def extract_with_async_playwright(job_id: str, request: ScrapeRequest, web
         await store.update_job(job_id, progress=10, current_product="Loading live URL")
         await store.append_log(job_id, "Loading the live marketplace URL with async Playwright")
         
-        # Navigate with smart wait
-        await page.goto(str(request.url), wait_until="domcontentloaded", timeout=60000)
-        await asyncio.sleep(0.5)
+        # Navigate with smart wait.
+        timeout_ms = max(10000, min(request.options.timeout_seconds * 1000, 45000))
+        await page.goto(str(request.url), wait_until="domcontentloaded", timeout=timeout_ms)
+        await page.wait_for_timeout(250)
         
         await store.update_job(job_id, progress=15, current_product="Scrolling and extracting cards")
         
@@ -917,11 +945,11 @@ async def extract_with_async_playwright(job_id: str, request: ScrapeRequest, web
         
         # Parallel detail fetching
         if cards:
-            cards = await fetch_details_parallel(page.context, cards)
+            cards = await fetch_details_parallel(page.context, cards, request.options.concurrent_products, request.options.timeout_seconds)
             await store.append_log(job_id, f"Enriched {len(cards)} product details in parallel")
             if request.options.include_variants and request.options.variant_depth > 0:
                 await store.update_job(job_id, progress=55, current_product="Discovering and clicking product variants")
-                cards = await expand_variants_parallel(page.context, cards, request.options.variant_depth)
+                cards = await expand_variants_parallel(page.context, cards, request.options.variant_depth, request.options.concurrent_products, request.options.timeout_seconds)
                 await store.append_log(job_id, f"Expanded live variant intelligence to {len(cards)} variant rows")
         
         # Parse cards to products
@@ -1029,32 +1057,22 @@ async def run_scrape_job_optimized(job_id: str, request: ScrapeRequest) -> None:
             await store.append_log(job_id, "  • Check backend logs for detailed error")
             return
         
-        # Bulk save products with minimal delays
+        # Bulk save products without per-row sleeps or repeated aggregate recalculation.
         total = len(products)
         await store.update_job(job_id, progress=70, remaining_products=total, current_product="Saving scraped products")
-        
-        for index, product in enumerate(products, start=1):
+        job = await store.get_job(job_id)
+        if job and job.status == JobStatus.stopped:
+            await store.append_log(job_id, "Job stopped by user")
+            return
+        while True:
             job = await store.get_job(job_id)
-            if job and job.status == JobStatus.stopped:
-                await store.append_log(job_id, "Job stopped by user")
-                return
-            
-            # Check pause status without blocking
-            while True:
-                job = await store.get_job(job_id)
-                if not job or job.status != JobStatus.paused:
-                    break
-                await asyncio.sleep(0.2)
-            
-            await asyncio.sleep(random.uniform(0.1, 0.3))  # Minimal delay
-            await store.add_product(job_id, product)
-            await store.update_job(
-                job_id,
-                progress=70 + round((index / total) * 25),
-                current_product=product.name,
-                remaining_products=max(total - index, 0),
-            )
-            await store.append_log(job_id, f"Processed {product.product_rank} {product.name[:70]}")
+            if not job or job.status != JobStatus.paused:
+                break
+            await asyncio.sleep(0.2)
+
+        await store.add_products(job_id, products)
+        await store.update_job(job_id, progress=95, current_product=f"Saved {total} products", remaining_products=0)
+        await store.append_log(job_id, f"Bulk saved {total} products")
         
         await store.update_job(job_id, status=JobStatus.completed, progress=100, current_product="Completed", remaining_products=0)
         await store.append_log(

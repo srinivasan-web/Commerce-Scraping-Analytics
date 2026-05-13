@@ -70,6 +70,22 @@ class JobStore:
             estimated_units=sum(item.units_sold for item in products if item.units_sold_estimated),
         )
 
+    async def add_products(self, job_id: str, new_products: list[Product]) -> None:
+        job = await self.get_job(job_id)
+        if not job or not new_products:
+            return
+        products = [*job.products, *new_products]
+        await self.update_job(
+            job_id,
+            products=products,
+            completed_products=len(products),
+            remaining_products=0,
+            revenue=sum(item.revenue for item in products),
+            units_sold=sum(item.units_sold for item in products),
+            visible_bought_count=sum(item.visible_bought_count for item in products),
+            estimated_units=sum(item.units_sold for item in products if item.units_sold_estimated),
+        )
+
     async def set_status(self, job_id: str, status: JobStatus) -> None:
         await self.update_job(job_id, status=status)
 

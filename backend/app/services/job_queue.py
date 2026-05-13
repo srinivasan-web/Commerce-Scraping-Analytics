@@ -11,6 +11,7 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
@@ -185,7 +186,11 @@ async def get_job_queue() -> JobQueue:
     """Get or create the global job queue."""
     global _job_queue
     if _job_queue is None:
-        _job_queue = JobQueue(max_workers=3, worker_timeout=3600)
+        try:
+            max_workers = max(1, min(int(os.getenv("SCRAPER_MAX_WORKERS", "1")), 4))
+        except ValueError:
+            max_workers = 1
+        _job_queue = JobQueue(max_workers=max_workers, worker_timeout=3600)
     return _job_queue
 
 

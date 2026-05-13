@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
 
-# Store Playwright browsers inside the deployed app instead of Render's external
-# cache, which can be missing at runtime on fresh instances.
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
     await seed_store()
     
     # Initialize job queue with async scraper
-    print("📋 Initializing job queue with 3 workers...")
+    print(f"📋 Initializing job queue with {os.getenv('SCRAPER_MAX_WORKERS', '1')} worker(s)...")
     await initialize_job_queue(run_scrape_job_optimized)
     
     yield
