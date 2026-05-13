@@ -5,3 +5,16 @@ SCRAPER_MAX_WORKERS=1
 SCRAPER_MAX_BROWSERS=1
 SCRAPER_MAX_DETAIL_CONCURRENCY=6
 SCRAPER_MAX_VARIANT_CONCURRENCY=2
+
+
+Backend health:
+https://YOUR-RENDER-BACKEND.onrender.com/health
+
+Backend docs:
+https://YOUR-RENDER-BACKEND.onrender.com/docs
+
+Storage check:
+https://YOUR-RENDER-BACKEND.onrender.com/api/admin/storage-status
+
+Frontend:
+https://YOUR-VERCEL-FRONTEND.vercel.app
