@@ -1,5 +1,47 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Runtime tables used by the FastAPI backend. Products are stored as JSONB so
+-- the API can persist every scraped field without keeping large result sets in
+-- application memory.
+CREATE TABLE IF NOT EXISTS app_jobs (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL DEFAULT 'demo-org',
+  url TEXT NOT NULL,
+  website TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  progress INTEGER NOT NULL DEFAULT 0,
+  current_product TEXT NOT NULL DEFAULT '',
+  completed_products INTEGER NOT NULL DEFAULT 0,
+  remaining_products INTEGER NOT NULL DEFAULT 0,
+  revenue DOUBLE PRECISION NOT NULL DEFAULT 0,
+  units_sold INTEGER NOT NULL DEFAULT 0,
+  visible_bought_count INTEGER NOT NULL DEFAULT 0,
+  estimated_units INTEGER NOT NULL DEFAULT 0,
+  captcha_alert BOOLEAN NOT NULL DEFAULT FALSE,
+  external_job_id TEXT NOT NULL DEFAULT '',
+  external_status_url TEXT NOT NULL DEFAULT '',
+  logs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS app_products (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES app_jobs(id) ON DELETE CASCADE,
+  organization_id TEXT NOT NULL DEFAULT 'demo-org',
+  payload JSONB NOT NULL,
+  revenue DOUBLE PRECISION NOT NULL DEFAULT 0,
+  units_sold INTEGER NOT NULL DEFAULT 0,
+  visible_bought_count INTEGER NOT NULL DEFAULT 0,
+  scraped_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_jobs_org_created ON app_jobs (organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_products_job ON app_products(job_id);
+CREATE INDEX IF NOT EXISTS idx_app_products_org ON app_products(organization_id);
+
 CREATE TABLE IF NOT EXISTS scraping_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id TEXT NOT NULL DEFAULT 'demo-org',

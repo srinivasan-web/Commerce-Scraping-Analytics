@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.api import router
-from app.services.store import seed_store
+from app.services.store import seed_store, store
 from app.services.async_scraper import run_scrape_job_optimized, cleanup_browser_pool
 from app.services.job_queue import initialize_job_queue, shutdown_job_queue, get_job_queue
 
@@ -57,20 +57,21 @@ def cors_origin_regex() -> str:
 async def lifespan(app: FastAPI):
     """Application lifespan management with optimized async scraping."""
     # Startup
-    print("🚀 Starting backend with optimized async scraping...")
+    print("Starting backend with optimized async scraping...")
     await seed_store()
     
     # Initialize job queue with async scraper
-    print(f"📋 Initializing job queue with {os.getenv('SCRAPER_MAX_WORKERS', '1')} worker(s)...")
+    print(f"Initializing job queue with {os.getenv('SCRAPER_MAX_WORKERS', '1')} worker(s)...")
     await initialize_job_queue(run_scrape_job_optimized)
     
     yield
     
     # Shutdown
-    print("🛑 Shutting down gracefully...")
+    print("Shutting down gracefully...")
     await shutdown_job_queue()
     await cleanup_browser_pool()
-    print("✅ Cleanup complete")
+    await store.close()
+    print("Cleanup complete")
 
 
 app = FastAPI(
@@ -105,9 +106,14 @@ async def root() -> dict[str, str]:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, object]:
     """Health check endpoint."""
-    return {"status": "ok", "version": "2.0.0", "features": ["async-scraping", "job-queue", "performance-monitoring"]}
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "storage": "postgres" if store.persistent else "memory",
+        "features": ["async-scraping", "job-queue", "performance-monitoring", "database-store"],
+    }
 
 
 @app.get("/api/admin/queue-status")
@@ -115,6 +121,12 @@ async def get_queue_status() -> dict:
     """Get current job queue status."""
     queue = await get_job_queue()
     return queue.get_status()
+
+
+@app.get("/api/admin/storage-status")
+async def get_storage_status() -> dict:
+    """Get current storage backend and row counts."""
+    return await store.storage_status()
 
 
 @app.get("/api/admin/metrics")

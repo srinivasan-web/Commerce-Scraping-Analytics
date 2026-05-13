@@ -1,2 +1,7 @@
 yoou implementation for the designing in the silder action and clickable and button format in dashboard with step by step processing more attractive and dynamci level advanced level ore attractive .
 python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+PLAYWRIGHT_BROWSERS_PATH=0
+SCRAPER_MAX_WORKERS=1
+SCRAPER_MAX_BROWSERS=1
+SCRAPER_MAX_DETAIL_CONCURRENCY=6
+SCRAPER_MAX_VARIANT_CONCURRENCY=2

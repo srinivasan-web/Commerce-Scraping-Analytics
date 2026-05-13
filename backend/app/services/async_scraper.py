@@ -1087,8 +1087,8 @@ async def run_scrape_job_optimized(job_id: str, request: ScrapeRequest) -> None:
         await store.append_log(job_id, f"Job failed: {exc}")
     
     finally:
-        # Keep pool alive for next jobs
-        pass
+        if os.getenv("SCRAPER_KEEP_BROWSER_POOL", "0").lower() not in {"1", "true", "yes"}:
+            await _browser_pool.cleanup()
 
 
 async def cleanup_browser_pool():
