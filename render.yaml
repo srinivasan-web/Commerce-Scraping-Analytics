@@ -17,3 +17,5 @@ services:
         value: "6"
       - key: SCRAPER_MAX_VARIANT_CONCURRENCY
         value: "2"
+      - key: CORS_ORIGIN_REGEX
+        value: "https://commerce-scraping-analytics(?:-[a-z0-9]+)?(?:-git-main)?-srinivasan-webs-projects\\.vercel\\.app"
