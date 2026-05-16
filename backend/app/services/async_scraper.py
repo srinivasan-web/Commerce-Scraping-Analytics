@@ -21,7 +21,6 @@ import time
 import uuid
 from collections import defaultdict
 from typing import Optional
-from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
@@ -32,7 +31,7 @@ from app.services.store import store
 RUPEE = "\u20b9"
 MOJIBAKE_RUPEE = "\u00e2\u201a\u00b9"
 PRICE_TOKEN = f"(?:{re.escape(RUPEE)}|{re.escape(MOJIBAKE_RUPEE)}|Rs\\.?|INR|\\$)"
-BOUGHT_COUNT_PATTERN = r"\d[\d,.]*\s*(?:k|m|lakh|lac|l|crore|cr)?\+?\s*(?:bought|sold|purchased|orders?)(?:\s+(?:in\s+)?(?:the\s+)?(?:past|last)\s+month)?"
+BOUGHT_COUNT_PATTERN = r"\d[\d,.]*\s*(?:k|m|lakh|lac|l|crore|cr)?\+?\s*(?:bought|sold|purchased|orders?|units?|demand|sales)(?:\s+(?:in\s+)?(?:the\s+)?(?:past|last|per)\s+month)?"
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
 
 
@@ -255,7 +254,7 @@ def parse_bought_count(text: str) -> int:
     """Parse bought count from text."""
     clean = clean_text(text).lower().replace(",", "")
     match = re.search(
-        r"(\d+(?:\.\d+)?)\s*(k|m|lakh|lac|l|crore|cr)?\+?\s*(?:bought|sold|purchased|orders?)(?:\s+(?:in\s+)?(?:the\s+)?(?:past|last)\s+month)?",
+        r"(\d+(?:\.\d+)?)\s*(k|m|lakh|lac|l|crore|cr)?\+?\s*(?:bought|sold|purchased|orders?|units?|demand|sales)(?:\s+(?:in\s+)?(?:the\s+)?(?:past|last|per)\s+month)?",
         clean,
         flags=re.I,
     )
@@ -393,7 +392,7 @@ def parse_card_to_product(job_id: str, request_url: str, website: Website, categ
     reviews_text = clean_text(card.get("reviews")) or first_match([r"[\d,]+\s*ratings?", r"[\d,]+\s*reviews?"], card_text)
     reviews = int(number_from_text(reviews_text, 0))
     bought_text = clean_text(card.get("boughtText")) or first_match(
-        [BOUGHT_COUNT_PATTERN],
+        [BOUGHT_COUNT_PATTERN, r"\d[\d,.]*\s*(?:k|m|lakh|lac|l|crore|cr)?\+?\s*(?:units?|demand|sales)(?:\s+(?:per|last|past)\s+month)?"],
         card_text,
     )
     rank_text = clean_text(card.get("rank")) or f"#{rank}"
@@ -872,9 +871,15 @@ async def expand_variants_parallel(context: BrowserContext, cards: list[dict], m
     return expanded
 
 
-async def scroll_and_extract_async(page: Page, max_products: int, job_id: str) -> list[dict]:
+async def scroll_and_extract_async(page: Page, max_products: int, job_id: str, website: Website) -> list[dict]:
     """Scroll page and extract product cards asynchronously with error handling."""
     cards = []
+    if website == Website.flipkart:
+        from app.services.scraper_engine import FLIPKART_EXTRACT_SCRIPT
+
+        extract_script = FLIPKART_EXTRACT_SCRIPT
+    else:
+        extract_script = EXTRACT_SCRIPT
     
     try:
         # Smart scrolling with conditional waits
@@ -884,7 +889,7 @@ async def scroll_and_extract_async(page: Page, max_products: int, job_id: str) -
             
             # Try to extract after each scroll
             try:
-                current_cards = await page.evaluate(EXTRACT_SCRIPT, {"maxProducts": max_products})
+                current_cards = await page.evaluate(extract_script, {"maxProducts": max_products})
                 cards = current_cards
                 await store.append_log(job_id, f"Scroll {scroll_count + 1}: Extracted {len(cards)} products")
                 
@@ -899,7 +904,7 @@ async def scroll_and_extract_async(page: Page, max_products: int, job_id: str) -
         if not cards:
             await store.append_log(job_id, "No products found during scrolling, attempting final extraction")
             try:
-                cards = await page.evaluate(EXTRACT_SCRIPT, {"maxProducts": max_products})
+                cards = await page.evaluate(extract_script, {"maxProducts": max_products})
                 await store.append_log(job_id, f"Final extraction: {len(cards)} products found")
             except Exception as e:
                 await store.append_log(job_id, f"❌ Final extraction failed: {str(e)}")
@@ -926,14 +931,28 @@ async def extract_with_async_playwright(job_id: str, request: ScrapeRequest, web
         # Navigate with smart wait.
         timeout_ms = max(10000, min(request.options.timeout_seconds * 1000, 45000))
         await page.goto(str(request.url), wait_until="domcontentloaded", timeout=timeout_ms)
-        await page.wait_for_timeout(250)
+        if website == Website.flipkart:
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(3000)
+        else:
+            await page.wait_for_timeout(250)
         
         await store.update_job(job_id, progress=15, current_product="Scrolling and extracting cards")
         
         # Scroll and extract in parallel
         title = await page.title()
         body_text = await page.locator("body").inner_text(timeout=15000)
-        cards = await scroll_and_extract_async(page, request.options.max_products, job_id)
+        cards = await scroll_and_extract_async(page, request.options.max_products, job_id, website)
+        from app.services.scraper_engine import filter_product_cards
+
+        before_filter_count = len(cards)
+        cards = filter_product_cards(cards, website)
+        removed_count = before_filter_count - len(cards)
+        if removed_count:
+            await store.append_log(job_id, f"Filtered {removed_count} non-product dashboard/help rows before export")
         
         await store.update_job(job_id, progress=45, current_product="Enriching product details")
         await store.append_log(job_id, f"Loaded page title: {title[:90] or 'Untitled'}")
@@ -941,19 +960,23 @@ async def extract_with_async_playwright(job_id: str, request: ScrapeRequest, web
         # Check for CAPTCHA
         if re.search(r"captcha|robot check|verify you are human|enter the characters", body_text, flags=re.I):
             await store.update_job(job_id, captcha_alert=True)
-            await store.append_log(job_id, "Amazon CAPTCHA or robot-check page detected")
+            await store.append_log(job_id, f"{website.value.title()} CAPTCHA or robot-check page detected")
         
         # Parallel detail fetching
-        if cards:
+        if cards and website != Website.flipkart:
             cards = await fetch_details_parallel(page.context, cards, request.options.concurrent_products, request.options.timeout_seconds)
             await store.append_log(job_id, f"Enriched {len(cards)} product details in parallel")
             if request.options.include_variants and request.options.variant_depth > 0:
                 await store.update_job(job_id, progress=55, current_product="Discovering and clicking product variants")
                 cards = await expand_variants_parallel(page.context, cards, request.options.variant_depth, request.options.concurrent_products, request.options.timeout_seconds)
                 await store.append_log(job_id, f"Expanded live variant intelligence to {len(cards)} variant rows")
+        elif cards:
+            await store.append_log(job_id, "Parsed validated Flipkart product/listing rows from the live table/grid")
         
         # Parse cards to products
-        category = urlparse(str(request.url)).path.strip("/").split("/")[0].replace("-", " ").title() or title[:40] or "General"
+        from app.services.scraper_engine import category_from_url
+
+        category = category_from_url(str(request.url), title)
         rows = [
             apply_variant_fields(parse_card_to_product(job_id, str(request.url), website, category, rank, card), card)
             for rank, card in enumerate(cards[: request.options.max_products], start=1)
@@ -1044,10 +1067,10 @@ async def run_scrape_job_optimized(job_id: str, request: ScrapeRequest) -> None:
             await store.append_log(job_id, "❌ No live product cards were extracted.")
             await store.append_log(job_id, "")
             await store.append_log(job_id, "🔍 DIAGNOSIS - Possible causes:")
-            await store.append_log(job_id, "  1. Amazon page structure changed (CSS selectors outdated)")
-            await store.append_log(job_id, "  2. CAPTCHA or bot detection block")
+            await store.append_log(job_id, f"  1. {website.value.title()} page structure changed or the table/grid is empty")
+            await store.append_log(job_id, "  2. Login, CAPTCHA, or bot detection block")
             await store.append_log(job_id, "  3. Page not fully rendering (JavaScript execution)")
-            await store.append_log(job_id, "  4. Regional restriction or IP block")
+            await store.append_log(job_id, "  4. Regional restriction, account access, or IP block")
             await store.append_log(job_id, "  5. Network timeout or connection issue")
             await store.append_log(job_id, "")
             await store.append_log(job_id, "💡 SOLUTIONS:")

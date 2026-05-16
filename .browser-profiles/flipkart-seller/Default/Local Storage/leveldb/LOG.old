@@ -1,0 +1,15 @@
+2026/05/15-15:40:42.010 4ad4 Reusing MANIFEST G:\amazon_bestseller_scraper\.browser-profiles\flipkart-seller\Default\Local Storage\leveldb/MANIFEST-000001
+2026/05/15-15:40:42.021 4ad4 Recovering log #7
+2026/05/15-15:40:42.022 4ad4 Level-0 table #10: started
+2026/05/15-15:40:42.033 4ad4 Level-0 table #10: 30014 bytes OK
+2026/05/15-15:40:42.036 4ad4 Recovering log #9
+2026/05/15-15:40:42.040 4ad4 Reusing old log G:\amazon_bestseller_scraper\.browser-profiles\flipkart-seller\Default\Local Storage\leveldb/000009.log 
+2026/05/15-15:40:42.045 4ad4 Delete type=0 #7
+2026/05/15-15:40:42.047 339c Compacting 4@0 + 0@1 files
+2026/05/15-15:40:42.065 339c Generated table #11@0: 15 keys, 32396 bytes
+2026/05/15-15:40:42.067 339c Compacted 4@0 + 0@1 files => 32396 bytes
+2026/05/15-15:40:42.070 339c compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/05/15-15:40:42.072 339c Delete type=2 #3
+2026/05/15-15:40:42.073 339c Delete type=2 #6
+2026/05/15-15:40:42.073 339c Delete type=2 #8
+2026/05/15-15:40:42.073 339c Delete type=2 #10
