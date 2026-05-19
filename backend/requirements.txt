@@ -7,3 +7,6 @@ pydantic>=2.7
 python-multipart>=0.0.9
 asyncpg>=0.29
 redis>=5.0
+uvloop>=0.19; platform_system != "Windows"
+aiofiles>=23.2
+regex>=2024.5

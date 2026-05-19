@@ -87,16 +87,16 @@ def format_simple_excel(path):
         adjusted_width = min(max_length + 2, 50)
         worksheet.column_dimensions[column_letter].width = adjusted_width
 
-        if header in {"Estimated Monthly Revenue", "Product Total Revenue"}:
+        if header in {"Estimated Monthly Revenue", "Product Total Revenue", "Total Revenue"}:
             for cell in column[1:]:
                 cell.number_format = '"INR" #,##0.00'
         elif header in {"Overall Bought Count", "Reviews Count"}:
             for cell in column[1:]:
                 cell.number_format = '#,##0'
-        elif header == "Rank Number":
+        elif header in {"Rank", "Rank Number"}:
             for cell in column[1:]:
                 cell.number_format = '0'
-        elif header in {"Discount Percentage", "Product Rating Value"}:
+        elif header in {"Discount Percentage", "Product Rating Value", "Rating"}:
             for cell in column[1:]:
                 cell.number_format = '0.00'
 
@@ -877,26 +877,42 @@ def save_data(data, max_products=MAX_PRODUCTS):
         df = df.head(max_products)
     if "Product Total Revenue" not in df.columns and "Estimated Monthly Revenue" in df.columns:
         df["Product Total Revenue"] = df["Estimated Monthly Revenue"]
+    if "Rank" not in df.columns:
+        if "Rank Number" in df.columns:
+            df["Rank"] = df["Rank Number"]
+        elif "Product Rank" in df.columns:
+            df["Rank"] = df["Product Rank"]
+    if "Total Revenue" not in df.columns and "Product Total Revenue" in df.columns:
+        df["Total Revenue"] = df["Product Total Revenue"]
+    if "Rating" not in df.columns:
+        if "Product Rating Value" in df.columns:
+            df["Rating"] = df["Product Rating Value"]
+        elif "Product Rating" in df.columns:
+            df["Rating"] = df["Product Rating"]
     df.drop(columns=[column for column in REMOVED_EXPORT_COLUMNS if column in df.columns], errors="ignore", inplace=True)
 
     preferred_columns = [
-        "Product Rank",
-        "Rank Number",
+        "Rank",
+        "ASIN",
+        "Overall Bought Count",
+        "Product Price",
+        "Total Revenue",
         "Product Name",
         "Brand Name",
-        "Product Price",
+        "Number of Reviews",
+        "Rating",
+        "Product Rank",
+        "Rank Number",
+        "Product Total Revenue",
         "Product Price Value",
+        "Product Rating",
+        "Product Rating Value",
         "Original Price",
         "Original Price Value",
         "Discount Percentage",
-        "Product Rating",
-        "Product Rating Value",
-        "Number of Reviews",
         "Reviews Count",
-        "Overall Bought Count",
         "Bought Count Text",
         "Estimated Monthly Revenue",
-        "Product Total Revenue",
         "Availability",
         "Prime Available",
         "Free Delivery",
@@ -905,7 +921,6 @@ def save_data(data, max_products=MAX_PRODUCTS):
         "Product URL",
         "Product Image URL",
         "Category",
-        "ASIN",
         "Raw Card Text",
         "Timestamp",
     ]
@@ -987,16 +1002,16 @@ def save_data(data, max_products=MAX_PRODUCTS):
                 adjusted_width = min(max_length + 2, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
 
-                if header in {"Estimated Monthly Revenue", "Product Total Revenue"}:
+                if header in {"Estimated Monthly Revenue", "Product Total Revenue", "Total Revenue"}:
                     for cell in column[1:]:
                         cell.number_format = '"INR" #,##0.00'
                 elif header in {"Overall Bought Count", "Reviews Count"}:
                     for cell in column[1:]:
                         cell.number_format = '#,##0'
-                elif header == "Rank Number":
+                elif header in {"Rank", "Rank Number"}:
                     for cell in column[1:]:
                         cell.number_format = '0'
-                elif header in {"Discount Percentage", "Product Rating Value"}:
+                elif header in {"Discount Percentage", "Product Rating Value", "Rating"}:
                     for cell in column[1:]:
                         cell.number_format = '0.00'
             

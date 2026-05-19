@@ -14,21 +14,25 @@ from app.schemas import Product
 
 
 ESSENTIAL_COLUMNS = [
-    "Product Rank",
-    "Rank Number",
+    "Rank",
+    "ASIN",
+    "Overall Bought Count",
+    "Product Price",
+    "Total Revenue",
     "Product Name",
     "Brand Name",
-    "Product Price",
+    "Number of Reviews",
+    "Rating",
+    "Product Rank",
+    "Rank Number",
+    "Product Price Text",
     "Discount Amount",
     "Product Rating Value",
-    "Number of Reviews",
-    "Overall Bought Count",
     "Bought Count Text",
     "Bought x Price Revenue",
     "Product URL",
     "Availability",
     "Category",
-    "ASIN",
     "Timestamp",
 ]
 
@@ -102,21 +106,25 @@ def score(product: Product, key: str) -> float:
 
 def product_row(product: Product) -> dict[str, object]:
     return {
-        "Product Rank": product.product_rank,
-        "Rank Number": product.rank_number,
+        "Rank": product.rank_number or product.product_rank,
+        "ASIN": product.parent_asin,
+        "Overall Bought Count": product.visible_bought_count,
+        "Product Price": product.price_text,
+        "Total Revenue": product.parent_product_revenue or product.revenue,
         "Product Name": product.name,
         "Brand Name": product.brand_name,
-        "Product Price": product.price_text,
+        "Number of Reviews": product.reviews_text,
+        "Rating": product.rating,
+        "Product Rank": product.product_rank,
+        "Rank Number": product.rank_number,
+        "Product Price Text": product.price_text,
         "Discount Amount": product.discount_amount,
         "Product Rating Value": product.rating,
-        "Number of Reviews": product.reviews_text,
-        "Overall Bought Count": product.visible_bought_count,
         "Bought Count Text": product.bought_count_text,
         "Bought x Price Revenue": product.revenue,
         "Product URL": product.product_url,
         "Availability": product.availability,
         "Category": product.category,
-        "ASIN": product.parent_asin,
         "Timestamp": product.scraped_at.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -297,6 +305,7 @@ def export_excel(products: list[Product]) -> bytes:
                 if header in {
                     "Product Price Value",
                     "Original Price Value",
+                    "Total Revenue",
                     "Estimated Monthly Revenue",
                     "Bought x Price Revenue",
                     "Product Total Revenue",
@@ -309,7 +318,7 @@ def export_excel(products: list[Product]) -> bytes:
                 elif header in {"Discount Percentage", "Variant Discount %"}:
                     for cell in column_cells[1:]:
                         cell.number_format = '0.00'
-            for metric in ["Bought x Price Revenue", "Estimated Monthly Revenue", "Product Total Revenue", "Variant Estimated Revenue", "Sales Potential Score"]:
+            for metric in ["Total Revenue", "Bought x Price Revenue", "Estimated Monthly Revenue", "Product Total Revenue", "Variant Estimated Revenue", "Sales Potential Score"]:
                 if metric in headers and worksheet.max_row > 2:
                     col = get_column_letter(headers.index(metric) + 1)
                     worksheet.conditional_formatting.add(

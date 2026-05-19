@@ -486,6 +486,8 @@ EXTRACT_SCRIPT = """
     'div.p13n-sc-uncoverable-faceout',        // Main bestseller container
     'li.zg-carousel-general-faceout',          // Carousel items
     'div[data-asin]',                           // Any div with ASIN
+    'li[data-asin]',
+    'li[id]',
     'div.a-cardui',                             // Card UI components
     'div[class*="p13n"]',
     '[data-testid*="product"]',
@@ -528,7 +530,8 @@ EXTRACT_SCRIPT = """
       const link = linkNode ? absolute(linkNode.getAttribute('href') || linkNode.href || '') : '';
       
       // Extract ASIN
-      const idFromNode = clean(node.getAttribute('data-asin') || node.getAttribute('data-item-id') || '');
+      const rawNodeId = clean(node.getAttribute('data-asin') || node.getAttribute('data-item-id') || node.getAttribute('id') || '');
+      const idFromNode = /^[A-Z0-9]{10}$/.test(rawNodeId) ? rawNodeId : '';
       const asinFromLink = link ? (link.match(/\\/(?:dp|gp\\/product)\\/([A-Z0-9]{10})/) || link.match(/\\/(?:itm|ip|product|p)\\/([^/?#]+)/) || [])[1] : '';
       const id = idFromNode || asinFromLink || '';
       
@@ -616,6 +619,28 @@ EXTRACT_SCRIPT = """
       continue;
     }
   }
+
+  for (const list of document.querySelectorAll('[data-client-recs-list]')) {
+    if (rows.length >= maxProducts) break;
+    try {
+      const records = JSON.parse(list.getAttribute('data-client-recs-list') || '[]');
+      for (const record of records) {
+        if (rows.length >= maxProducts) break;
+        const id = clean(record?.id || '');
+        if (!/^[A-Z0-9]{10}$/.test(id) || seen.has(id)) continue;
+        const rankValue = clean(record?.metadataMap?.['render.zg.rank'] || '');
+        const productUrl = `${window.location.origin}/dp/${id}`;
+        seen.add(id);
+        rows.push({
+          text: '', rawText: '', name: '', productName: '', link: productUrl, productUrl,
+          img: '', imageUrl: '', id, asin: id, rank: rankValue ? `#${rankValue}` : `#${rows.length + 1}`,
+          price: '', rating: '', reviews: '', boughtText: '', discount: ''
+        });
+      }
+    } catch (e) {
+      // Keep DOM card results if Amazon metadata is not valid JSON.
+    }
+  }
   
   return rows;
 }
@@ -626,6 +651,7 @@ DETAIL_SCRIPT = """
   const clean = (value) => (value || '').replace(/\\s+/g, ' ').trim();
   const boughtPattern = /\\d[\\d,.]*\\s*(?:[kKmM]|lakh|lac|L|crore|cr)?\\+?\\s*(?:bought|sold|purchased|orders?)(?:\\s+(?:in\\s+)?(?:the\\s+)?(?:past|last)\\s+month)?/i;
   const boughtMatch = (value) => clean(((value || '').match(boughtPattern) || [])[0] || '');
+  const title = clean(document.querySelector('#productTitle, span#title, h1')?.innerText || '');
   const asinInput = document.querySelector('[name="ASIN"]');
   const asin = clean(asinInput ? asinInput.getAttribute('value') : '') ||
     clean((window.location.href.match(/\\/(?:dp|gp\\/product)\\/([A-Z0-9]{10})/) || [])[1] || '');
@@ -648,7 +674,7 @@ DETAIL_SCRIPT = """
   const boughtText = boughtMatch(socialProof ? socialProof.innerText : '') ||
     boughtMatch(boughtElement ? boughtElement.innerText : '') ||
     boughtMatch(document.body ? document.body.innerText : '');
-  return { asin, price, originalPrice, discount, boughtText };
+  return { asin, id: asin, name: title, productName: title, price, originalPrice, discount, boughtText };
 }
 """
 

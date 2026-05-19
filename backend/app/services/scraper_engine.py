@@ -448,6 +448,8 @@ EXTRACT_SCRIPT = """
     'div.p13n-sc-uncoverable-faceout',
     'li.zg-carousel-general-faceout',
     'div[data-asin]',
+    'li[data-asin]',
+    'li[id]',
     '[data-asin]'
   ].join(',')));
 
@@ -458,7 +460,8 @@ EXTRACT_SCRIPT = """
     const linkNode = node.querySelector('a[href*="/dp/"], a[href*="/gp/product/"]');
     const link = absolute(linkNode ? (getAttr(linkNode, 'href') || linkNode.href || '') : '');
     const img = node.querySelector('img');
-    const idFromNode = clean(node.getAttribute('data-asin') || node.getAttribute('data-item-id') || '');
+    const rawNodeId = clean(node.getAttribute('data-asin') || node.getAttribute('data-item-id') || node.getAttribute('id') || '');
+    const idFromNode = /^[A-Z0-9]{10}$/.test(rawNodeId) ? rawNodeId : '';
     const asinFromLink = clean((link.match(/(?:dp|gp\\/product)\\/([A-Z0-9]{10})/) || [])[1] || '');
     const id = idFromNode || asinFromLink;
     const rank = clean(getText(node.querySelector('.zg-bdg-text, [class*="zg-bdg-text"]'))) || clean((text.match(/#\\d+/) || [])[0] || '');
@@ -486,6 +489,28 @@ EXTRACT_SCRIPT = """
       id, asin: id, rank, price, rating, reviews, boughtText, discount
     });
     if (rows.length >= maxProducts) break;
+  }
+
+  for (const list of document.querySelectorAll('[data-client-recs-list]')) {
+    if (rows.length >= maxProducts) break;
+    try {
+      const records = JSON.parse(getAttr(list, 'data-client-recs-list') || '[]');
+      for (const record of records) {
+        if (rows.length >= maxProducts) break;
+        const id = clean(record?.id || '');
+        if (!/^[A-Z0-9]{10}$/.test(id) || seen.has(id)) continue;
+        const rankValue = clean(record?.metadataMap?.['render.zg.rank'] || '');
+        const link = `${window.location.origin}/dp/${id}`;
+        seen.add(id);
+        rows.push({
+          text: '', rawText: '', name: '', productName: '', link, productUrl: link,
+          img: '', imageUrl: '', id, asin: id, rank: rankValue ? `#${rankValue}` : `#${rows.length + 1}`,
+          price: '', rating: '', reviews: '', boughtText: '', discount: ''
+        });
+      }
+    } catch {
+      // Keep DOM card results if Amazon metadata is not valid JSON.
+    }
   }
 
   if (!rows.length) {
